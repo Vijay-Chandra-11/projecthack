@@ -95,8 +95,24 @@ animate();
 /* ---------- LOAD PACKING DATA ---------- */
 async function loadPackingFromAPI() {
   try {
-    const res = await fetch(API_URL);
+    const res = await fetch(API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        bin: [10, 10, 10],
+        items: [
+          [3, 4, 2],
+          [2, 2, 2],
+          [4, 3, 3]
+        ]
+      })
+    });
+
     const data = await res.json();
+    console.log("Backend response:", data);
+
     if (!data.packed_items) return;
 
     boxData = data.packed_items.map(item => ({
@@ -104,10 +120,12 @@ async function loadPackingFromAPI() {
       size: item.dimensions.map(v => v * SCALE),
       color: Math.random() * 0xffffff
     }));
+
   } catch (e) {
     console.error("Packing fetch failed", e);
   }
 }
+
 
 /* ---------- INIT ---------- */
 async function init() {
