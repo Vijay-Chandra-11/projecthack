@@ -74,6 +74,7 @@
 </div>
 
 <div id="scan-hint">Move phone side-to-side</div>
+
 <div id="hud">
   <div id="status-text">Initializing AR…</div>
 </div>
@@ -81,8 +82,8 @@
 <script type="module">
 import { ARButton } from "https://unpkg.com/three@0.128.0/examples/jsm/webxr/ARButton.js";
 
-/* 🔗 CHANGE ONLY THIS IF NGROK URL CHANGES */
-const API_URL = "https://a523ed7272c7.ngrok-free.app/latest-pack";
+/* 🔗 UPDATE ONLY THIS WHEN NGROK URL CHANGES */
+const API_URL = "https://14b7aef0b1fe.ngrok-free.app/latest-pack";
 
 /* Backend units → meters */
 const SCALE = 0.05;
@@ -93,22 +94,18 @@ let hitTestSource = null;
 let hitTestSourceRequested = false;
 let isPlaced = false;
 let boxData = [];
+let backendLoaded = false;
 
 init();
 animate();
 
-/* ---------- LOAD PACKING DATA ---------- */
+/* ---------- LOAD PACKING DATA (NON-BLOCKING) ---------- */
 async function loadPackingFromAPI() {
   try {
     const res = await fetch(API_URL);
     const data = await res.json();
 
-    console.log("Latest pack:", data);
-
-    if (!data.packed_items || !data.packed_items.length) {
-      setHUD("No packing data yet");
-      return;
-    }
+    if (!data.packed_items || !data.packed_items.length) return;
 
     boxData = data.packed_items.map(item => ({
       pos: item.position.map(v => v * SCALE),
@@ -116,17 +113,18 @@ async function loadPackingFromAPI() {
       color: Math.random() * 0xffffff
     }));
 
+    backendLoaded = true;
+    console.log("Packing loaded");
+
   } catch (e) {
-    console.error("Backend fetch failed", e);
-    setHUD("Backend not reachable");
+    console.warn("Backend unreachable");
   }
 }
 
 /* ---------- INIT ---------- */
-async function init() {
-  await loadPackingFromAPI();
-
+function init() {
   scene = new THREE.Scene();
+
   camera = new THREE.PerspectiveCamera(
     70,
     window.innerWidth / window.innerHeight,
@@ -146,7 +144,7 @@ async function init() {
   document.body.appendChild(renderer.domElement);
 
   const arButton = ARButton.createButton(renderer, {
-    requiredFeatures: ['hit-test']
+    requiredFeatures: ["hit-test"]
   });
   arButton.id = "ar-button";
   arButton.innerText = "START AR";
@@ -169,14 +167,16 @@ async function init() {
 
 /* ---------- CREATE STACK ---------- */
 function createStack() {
+  if (!boxData.length) return;
+
   stackGroup = new THREE.Group();
   stackGroup.position.setFromMatrixPosition(reticle.matrix);
   scene.add(stackGroup);
 
-  boxData.forEach(data => {
-    const geo = new THREE.BoxGeometry(...data.size);
+  boxData.forEach(d => {
+    const geo = new THREE.BoxGeometry(...d.size);
     const mat = new THREE.MeshStandardMaterial({
-      color: data.color,
+      color: d.color,
       roughness: 0.3,
       metalness: 0.1,
       transparent: true,
@@ -185,24 +185,25 @@ function createStack() {
 
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.set(
-      data.pos[0] + data.size[0] / 2,
-      data.pos[1] + data.size[1] / 2,
-      data.pos[2] + data.size[2] / 2
+      d.pos[0] + d.size[0] / 2,
+      d.pos[1] + d.size[1] / 2,
+      d.pos[2] + d.size[2] / 2
     );
 
-    const edges = new THREE.LineSegments(
-      new THREE.EdgesGeometry(geo),
-      new THREE.LineBasicMaterial({ color: 0x000000 })
+    mesh.add(
+      new THREE.LineSegments(
+        new THREE.EdgesGeometry(geo),
+        new THREE.LineBasicMaterial({ color: 0x000000 })
+      )
     );
 
-    mesh.add(edges);
     stackGroup.add(mesh);
   });
 }
 
 /* ---------- INTERACTION ---------- */
 function onSelect() {
-  if (!reticle.visible) return;
+  if (!reticle.visible || !backendLoaded) return;
 
   if (!isPlaced) {
     createStack();
@@ -235,6 +236,8 @@ function render(_, frame) {
       document.getElementById("scan-hint").style.display = "block";
       setHUD("Scanning floor…");
 
+      loadPackingFromAPI(); // 🔥 SAFE PLACE
+
       hitTestSourceRequested = true;
     }
 
@@ -242,10 +245,8 @@ function render(_, frame) {
       const hits = frame.getHitTestResults(hitTestSource);
       if (hits.length) {
         reticle.visible = true;
-        reticle.matrix.fromArray(
-          hits[0].getPose(refSpace).transform.matrix
-        );
-        setHUD("Tap to place");
+        reticle.matrix.fromArray(hits[0].getPose(refSpace).transform.matrix);
+        setHUD(backendLoaded ? "Tap to place" : "Loading packing…");
       } else {
         reticle.visible = false;
         setHUD("Move phone slowly");
