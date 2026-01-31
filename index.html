@@ -1,377 +1,245 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <title>VisionStack AR</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <title>VisionStack AR</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
 
-    <style>
-        body {
-            margin: 0;
-            overflow: hidden;
-            font-family: 'Inter', sans-serif;
-        }
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet" />
 
-        /* --- UI: START SCREEN --- */
-        #start-screen {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            z-index: 999;
-            color: white;
-            text-align: center;
-            padding-bottom: 50px;
-            /* Add some bottom padding for balance */
-        }
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: 'Inter', sans-serif;
+    }
 
-        .logo-box {
-            width: 80px;
-            height: 80px;
-            background: rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-bottom: 20px;
-            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
-            border: 1px solid rgba(255, 255, 255, 0.18);
-        }
+    #start-screen {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, #1e3c72, #2a5298);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 999;
+      color: white;
+      text-align: center;
+    }
 
-        h1 {
-            margin: 0;
-            font-size: 28px;
-            font-weight: 800;
-            letter-spacing: -1px;
-        }
+    #hud {
+      display: none;
+      position: absolute;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 90%;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(10px);
+      padding: 15px;
+      border-radius: 16px;
+      color: white;
+      text-align: center;
+    }
 
-        p {
-            margin-top: 10px;
-            opacity: 0.8;
-            font-size: 14px;
-            max-width: 250px;
-            line-height: 1.5;
-        }
+    #scan-hint {
+      display: none;
+      position: absolute;
+      top: 40%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: white;
+      font-weight: 600;
+    }
 
-        /* --- FIXED BUTTON STYLING --- */
-        /* The Custom AR Button injected by Three.js */
-        button#ar-button {
-            /* Reduced margin to bring it closer to text */
-            margin-top: 25px !important;
-            /* Slightly translucent background for better blending */
-            background: rgba(255, 255, 255, 0.95) !important;
-            color: #1e3c72 !important;
-            /* Subtle border to match the glass look */
-            border: 1px solid rgba(255, 255, 255, 0.5) !important;
-            padding: 14px 35px !important;
-            border-radius: 50px !important;
-            font-weight: 700 !important;
-            font-size: 15px !important;
-            /* Softer shadow */
-            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15) !important;
-            transition: all 0.2s ease !important;
-            letter-spacing: 0.5px !important;
-            display: flex !important;
-            flex-direction: row !important;
-            justify-content: center !important;
-            align-items: center !important;
-            margin-bottom: 50px !important;
-
-        }
-
-        button#ar-button:active {
-            transform: scale(0.96) !important;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1) !important;
-        }
-
-        /* --------------------------- */
-
-        /* --- UI: IN-APP HUD --- */
-        #hud {
-            display: none;
-            /* Hidden until AR starts */
-            position: absolute;
-            bottom: 30px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 90%;
-            background: rgba(0, 0, 0, 0.6);
-            backdrop-filter: blur(10px);
-            padding: 15px;
-            border-radius: 16px;
-            color: white;
-            text-align: center;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        #status-text {
-            font-size: 14px;
-            font-weight: 600;
-        }
-
-        /* Scan Animation Hint */
-        #scan-hint {
-            display: none;
-            position: absolute;
-            top: 40%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 200px;
-            pointer-events: none;
-        }
-
-        .phone-icon {
-            width: 60px;
-            height: 100px;
-            border: 4px solid white;
-            border-radius: 10px;
-            margin: 0 auto 10px;
-            animation: rock 2s infinite ease-in-out;
-        }
-
-        @keyframes rock {
-            0% {
-                transform: rotate(-10deg);
-            }
-
-            50% {
-                transform: rotate(10deg);
-            }
-
-            100% {
-                transform: rotate(-10deg);
-            }
-        }
-    </style>
+    button#ar-button {
+      margin-top: 25px !important;
+      background: white !important;
+      color: #1e3c72 !important;
+      padding: 14px 35px !important;
+      border-radius: 50px !important;
+      font-weight: 700 !important;
+      font-size: 15px !important;
+      border: none !important;
+    }
+  </style>
 </head>
 
 <body>
 
-    <div id="start-screen">
-        <div class="logo-box">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="white">
-                <path d="M21 16.5C21 16.88 20.79 17.21 20.47 17.38L12.57 21.82C12.41 21.9 12.21 22 12 22C11.79 22 11.59 21.9 11.43 21.82L3.53 17.38C3.21 17.21 3 16.88 3 16.5V7.5C3 7.12 3.21 6.79 3.53 6.62L11.43 2.18C11.59 2.1 11.79 2 12 2C12.21 2 12.41 2.1 12.57 2.18L20.47 6.62C20.79 6.79 21 7.12 21 7.5V16.5M12 4.15L6.04 7.5L12 10.85L17.96 7.5L12 4.15M5 15.91L11 19.29V12.58L5 9.21V15.91M19 15.91V9.21L13 12.58V19.29L19 15.91Z" />
-            </svg>
-        </div>
-        <h1>VisionStack</h1>
-        <p>AI-Optimized Loading Assistant.<br>Find a floor to view the plan.</p>
-    </div>
+<div id="start-screen">
+  <h1>VisionStack</h1>
+  <p>AI-Optimized Loading Assistant</p>
+</div>
 
-    <div id="scan-hint">
-        <div class="phone-icon"></div>
-        <div style="color: white; text-align: center; font-weight: 600;">Move phone slowly<br>side to side</div>
-    </div>
+<div id="scan-hint">Move phone side-to-side</div>
+<div id="hud"><div id="status-text">Initializing AR…</div></div>
 
-    <div id="hud">
-        <div id="status-text">Initializing AR...</div>
-    </div>
+<script type="module">
+import { ARButton } from "https://unpkg.com/three@0.128.0/examples/jsm/webxr/ARButton.js";
 
-    <script type="module">
-        import {
-            ARButton
-        } from 'https://unpkg.com/three@0.128.0/examples/jsm/webxr/ARButton.js';
+const API_URL = " https://52aea11295d9.ngrok-free.app/pack";
+const SCALE = 0.05; // backend units → meters
 
-        let container, camera, scene, renderer;
-        let reticle, stackGroup;
-        let hitTestSource = null;
-        let hitTestSourceRequested = false;
-        let isPlaced = false;
+let camera, scene, renderer;
+let reticle, stackGroup;
+let hitTestSource = null;
+let hitTestSourceRequested = false;
+let isPlaced = false;
+let boxData = [];
 
-        // --- THE "PERFECT STACK" DATA ---
-        const boxSize = 0.3;
-        const gap = 0.01;
+init();
+animate();
 
-        const boxData = [{
-                pos: [0, 0, 0],
-                color: 0x3498db
-            },
-            {
-                pos: [boxSize + gap, 0, 0],
-                color: 0xe74c3c
-            },
-            {
-                pos: [0, 0, boxSize + gap],
-                color: 0xf1c40f
-            },
-            {
-                pos: [boxSize + gap, 0, boxSize + gap],
-                color: 0x2ecc71
-            },
-            {
-                pos: [(boxSize + gap) / 2, boxSize, (boxSize + gap) / 2],
-                color: 0x9b59b6
-            }
-        ];
+/* ---------- LOAD PACKING DATA ---------- */
+async function loadPackingFromAPI() {
+  try {
+    const res = await fetch(API_URL);
+    const data = await res.json();
+    if (!data.packed_items) return;
 
-        init();
-        animate();
+    boxData = data.packed_items.map(item => ({
+      pos: item.position.map(v => v * SCALE),
+      size: item.dimensions.map(v => v * SCALE),
+      color: Math.random() * 0xffffff
+    }));
+  } catch (e) {
+    console.error("Packing fetch failed", e);
+  }
+}
 
-        function init() {
-            container = document.createElement('div');
-            document.body.appendChild(container);
+/* ---------- INIT ---------- */
+async function init() {
+  await loadPackingFromAPI();
 
-            scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
 
-            const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444);
-            hemiLight.position.set(0, 20, 0);
-            scene.add(hemiLight);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
+  const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+  dir.position.set(3, 10, 10);
+  scene.add(dir);
 
-            const dirLight = new THREE.DirectionalLight(0xffffff);
-            dirLight.position.set(3, 10, 10);
-            scene.add(dirLight);
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.xr.enabled = true;
+  document.body.appendChild(renderer.domElement);
 
-            renderer = new THREE.WebGLRenderer({
-                antialias: true,
-                alpha: true
-            });
-            renderer.setPixelRatio(window.devicePixelRatio);
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.xr.enabled = true;
-            container.appendChild(renderer.domElement);
+  const arButton = ARButton.createButton(renderer, { requiredFeatures: ['hit-test'] });
+  arButton.id = "ar-button";
+  arButton.innerText = "START AR";
+  document.getElementById("start-screen").appendChild(arButton);
 
-            const arButton = ARButton.createButton(renderer, {
-                requiredFeatures: ['hit-test']
-            });
-            arButton.id = "ar-button";
-            arButton.innerText = "START AR SCAN";
-            document.getElementById('start-screen').appendChild(arButton);
+  reticle = new THREE.Mesh(
+    new THREE.RingGeometry(0.1, 0.11, 32).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({ color: 0xffffff })
+  );
+  reticle.matrixAutoUpdate = false;
+  reticle.visible = false;
+  scene.add(reticle);
 
-            reticle = new THREE.Mesh(
-                new THREE.RingGeometry(0.1, 0.11, 32).rotateX(-Math.PI / 2),
-                new THREE.MeshBasicMaterial({
-                    color: 0xffffff
-                })
-            );
-            reticle.matrixAutoUpdate = false;
-            reticle.visible = false;
-            scene.add(reticle);
+  const controller = renderer.xr.getController(0);
+  controller.addEventListener("select", onSelect);
+  scene.add(controller);
 
-            const controller = renderer.xr.getController(0);
-            controller.addEventListener('select', onSelect);
-            scene.add(controller);
+  window.addEventListener("resize", onResize);
+}
 
-            window.addEventListener('resize', onWindowResize);
-        }
+/* ---------- STACK CREATION ---------- */
+function createStack() {
+  stackGroup = new THREE.Group();
+  stackGroup.position.setFromMatrixPosition(reticle.matrix);
+  scene.add(stackGroup);
 
-        function onSelect() {
-            if (reticle.visible) {
-                if (!isPlaced) {
-                    createStack();
-                    isPlaced = true;
-                    updateHUD("Stack placed! Tap again to move it.");
-                } else {
-                    stackGroup.position.setFromMatrixPosition(reticle.matrix);
-                    const p = new THREE.Vector3();
-                    p.setFromMatrixPosition(reticle.matrix);
-                    stackGroup.lookAt(camera.position.x, p.y, camera.position.z);
-                }
-            }
-        }
+  boxData.forEach(data => {
+    const geo = new THREE.BoxGeometry(...data.size);
+    const mat = new THREE.MeshStandardMaterial({
+      color: data.color,
+      roughness: 0.3,
+      metalness: 0.1,
+      transparent: true,
+      opacity: 0.9
+    });
 
-        function createStack() {
-            stackGroup = new THREE.Group();
-            stackGroup.position.setFromMatrixPosition(reticle.matrix);
-            stackGroup.lookAt(camera.position.x, stackGroup.position.y, camera.position.z);
-            scene.add(stackGroup);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(
+      data.pos[0] + data.size[0] / 2,
+      data.pos[1] + data.size[1] / 2,
+      data.pos[2] + data.size[2] / 2
+    );
 
-            boxData.forEach(data => {
-                const geometry = new THREE.BoxGeometry(boxSize, boxSize, boxSize);
-                const material = new THREE.MeshPhysicalMaterial({
-                    color: data.color,
-                    metalness: 0.1,
-                    roughness: 0.2,
-                    transmission: 0.1,
-                    transparent: true,
-                    opacity: 0.9
-                });
-                const mesh = new THREE.Mesh(geometry, material);
-                mesh.position.set(data.pos[0], data.pos[1] + boxSize / 2, data.pos[2]);
-                const edges = new THREE.EdgesGeometry(geometry);
-                const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({
-                    color: 0x000000,
-                    linewidth: 2
-                }));
-                mesh.add(line);
-                stackGroup.add(mesh);
-            });
-        }
+    const edges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(geo),
+      new THREE.LineBasicMaterial({ color: 0x000000 })
+    );
 
-        function updateHUD(text) {
-            document.getElementById('status-text').innerText = text;
-        }
+    mesh.add(edges);
+    stackGroup.add(mesh);
+  });
+}
 
-        function onWindowResize() {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        }
+/* ---------- INTERACTION ---------- */
+function onSelect() {
+  if (!reticle.visible) return;
 
-        function animate() {
-            renderer.setAnimationLoop(render);
-        }
+  if (!isPlaced) {
+    createStack();
+    isPlaced = true;
+    setHUD("Stack placed!");
+  } else {
+    stackGroup.position.setFromMatrixPosition(reticle.matrix);
+  }
+}
 
-        function render(timestamp, frame) {
-            if (frame) {
-                const referenceSpace = renderer.xr.getReferenceSpace();
-                const session = renderer.xr.getSession();
+/* ---------- RENDER LOOP ---------- */
+function animate() {
+  renderer.setAnimationLoop(render);
+}
 
-                if (hitTestSourceRequested === false) {
-                    session.requestReferenceSpace('viewer').then((referenceSpace) => {
-                        session.requestHitTestSource({
-                            space: referenceSpace
-                        }).then((source) => {
-                            hitTestSource = source;
-                        });
-                    });
-                    document.getElementById('start-screen').style.display = 'none';
-                    document.getElementById('hud').style.display = 'block';
-                    document.getElementById('scan-hint').style.display = 'block';
-                    updateHUD("Scanning floor...");
-                    session.addEventListener('end', () => {
-                        hitTestSourceRequested = false;
-                        hitTestSource = null;
-                        document.getElementById('start-screen').style.display = 'flex';
-                        document.getElementById('hud').style.display = 'none';
-                        document.getElementById('scan-hint').style.display = 'none';
-                        if (stackGroup) scene.remove(stackGroup);
-                        isPlaced = false;
-                    });
-                    hitTestSourceRequested = true;
-                }
+function render(_, frame) {
+  if (frame) {
+    const refSpace = renderer.xr.getReferenceSpace();
+    const session = renderer.xr.getSession();
 
-                if (hitTestSource) {
-                    const hitTestResults = frame.getHitTestResults(hitTestSource);
-                    if (hitTestResults.length) {
-                        const hit = hitTestResults[0];
-                        reticle.visible = true;
-                        reticle.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
-                        if (!isPlaced) {
-                            document.getElementById('scan-hint').style.display = 'none';
-                            updateHUD("Floor detected! Tap to place.");
-                        }
-                    } else {
-                        reticle.visible = false;
-                        if (!isPlaced) {
-                            document.getElementById('scan-hint').style.display = 'block';
-                            updateHUD("Move phone side-to-side...");
-                        }
-                    }
-                }
-            }
-            renderer.render(scene, camera);
-        }
-    </script>
+    if (!hitTestSourceRequested) {
+      session.requestReferenceSpace("viewer").then(space => {
+        session.requestHitTestSource({ space }).then(source => hitTestSource = source);
+      });
+
+      document.getElementById("start-screen").style.display = "none";
+      document.getElementById("hud").style.display = "block";
+      document.getElementById("scan-hint").style.display = "block";
+      setHUD("Scanning floor…");
+
+      hitTestSourceRequested = true;
+    }
+
+    if (hitTestSource) {
+      const hits = frame.getHitTestResults(hitTestSource);
+      if (hits.length) {
+        reticle.visible = true;
+        reticle.matrix.fromArray(hits[0].getPose(refSpace).transform.matrix);
+        setHUD("Tap to place");
+      } else {
+        reticle.visible = false;
+        setHUD("Move phone slowly");
+      }
+    }
+  }
+  renderer.render(scene, camera);
+}
+
+function setHUD(text) {
+  document.getElementById("status-text").innerText = text;
+}
+
+function onResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+</script>
+
 </body>
-
 </html>
