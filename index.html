@@ -1,224 +1,3 @@
-<!-- <!DOCTYPE html>
-<html lang="en">
-<head>
-  <title>VisionStack AR</title>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-
-  <style>
-    body { margin: 0; overflow: hidden; font-family: sans-serif; }
-
-    #start {
-      position: absolute;
-      inset: 0;
-      background: linear-gradient(135deg, #1e3c72, #2a5298);
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      color: white;
-      z-index: 10;
-    }
-
-    #hud {
-      display: none;
-      position: absolute;
-      bottom: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: rgba(0,0,0,0.6);
-      padding: 12px 18px;
-      border-radius: 12px;
-      color: white;
-      font-size: 14px;
-    }
-
-    button#ar-button {
-      margin-top: 20px !important;
-      padding: 14px 32px !important;
-      border-radius: 50px !important;
-      font-weight: bold !important;
-      border: none !important;
-    }
-  </style>
-</head>
-
-<body>
-
-<div id="start">
-  <h1>VisionStack</h1>
-  <p>AI-Optimized Loading Assistant</p>
-</div>
-
-<div id="hud"><span id="status">Initializing…</span></div>
-
-<script type="module">
-import { ARButton } from "https://unpkg.com/three@0.128.0/examples/jsm/webxr/ARButton.js";
-
-/* 🔗 CHANGE ONLY THIS */
-const NGROK_BASE = "https://d97064b994b6.ngrok-free.app";
-
-const POST_PACK = `${NGROK_BASE}/pack`;
-const GET_PACK  = `${NGROK_BASE}/latest-pack`;
-
-const SCALE = 0.05;
-
-let scene, camera, renderer;
-let reticle, hitTestSource = null, hitTestRequested = false;
-let stackGroup = null;
-let boxData = [];
-let backendReady = false;
-
-/* ---------- INIT ---------- */
-init();
-renderer.setAnimationLoop(render);
-
-function init() {
-  scene = new THREE.Scene();
-
-  camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
-
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
-  const dir = new THREE.DirectionalLight(0xffffff, 0.8);
-  dir.position.set(3, 10, 10);
-  scene.add(dir);
-
-  renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.xr.enabled = true;
-  document.body.appendChild(renderer.domElement);
-
-  const arBtn = ARButton.createButton(renderer, { requiredFeatures: ["hit-test"] });
-  arBtn.id = "ar-button";
-  document.getElementById("start").appendChild(arBtn);
-
-  reticle = new THREE.Mesh(
-    new THREE.RingGeometry(0.1, 0.11, 32).rotateX(-Math.PI / 2),
-    new THREE.MeshBasicMaterial({ color: 0xffffff })
-  );
-  reticle.matrixAutoUpdate = false;
-  reticle.visible = false;
-  scene.add(reticle);
-
-  const controller = renderer.xr.getController(0);
-  controller.addEventListener("select", placeStack);
-  scene.add(controller);
-
-  window.addEventListener("resize", onResize);
-}
-
-/* ---------- BACKEND FLOW ---------- */
-async function computePack() {
-  setStatus("Computing packing…");
-
-  await fetch(POST_PACK, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      bin: [10,10,10],
-      items: [
-        [3,4,2],
-        [2,2,2],
-        [4,3,3]
-      ]
-    })
-  });
-
-  await loadLatestPack();
-}
-
-async function loadLatestPack() {
-  const res = await fetch(GET_PACK);
-  const data = await res.json();
-
-  boxData = data.packed_items.map(i => ({
-    pos: i.position.map(v => v * SCALE),
-    size: i.dimensions.map(v => v * SCALE)
-  }));
-
-  backendReady = true;
-  setStatus("Tap to place");
-}
-
-/* ---------- PLACE STACK ---------- */
-function placeStack() {
-  if (!reticle.visible || !backendReady) return;
-
-  if (stackGroup) scene.remove(stackGroup);
-  stackGroup = new THREE.Group();
-  stackGroup.position.setFromMatrixPosition(reticle.matrix);
-  scene.add(stackGroup);
-
-  boxData.forEach(b => {
-    const g = new THREE.BoxGeometry(...b.size);
-    const m = new THREE.MeshStandardMaterial({ color: 0x4aa3ff });
-    const mesh = new THREE.Mesh(g, m);
-
-    mesh.position.set(
-      b.pos[0] + b.size[0]/2,
-      b.pos[1] + b.size[1]/2,
-      b.pos[2] + b.size[2]/2
-    );
-
-    stackGroup.add(mesh);
-  });
-
-  setStatus("Placed");
-}
-
-/* ---------- RENDER ---------- */
-function render(_, frame) {
-  if (frame) {
-    const refSpace = renderer.xr.getReferenceSpace();
-    const session = renderer.xr.getSession();
-
-    if (!hitTestRequested) {
-      session.requestReferenceSpace("viewer").then(space => {
-        session.requestHitTestSource({ space }).then(src => hitTestSource = src);
-      });
-
-      document.getElementById("start").style.display = "none";
-      document.getElementById("hud").style.display = "block";
-
-      computePack(); // 🔥 POST + GET happens HERE
-
-      hitTestRequested = true;
-    }
-
-    if (hitTestSource) {
-      const hits = frame.getHitTestResults(hitTestSource);
-      if (hits.length) {
-        reticle.visible = true;
-        reticle.matrix.fromArray(hits[0].getPose(refSpace).transform.matrix);
-      } else {
-        reticle.visible = false;
-      }
-    }
-  }
-
-  renderer.render(scene, camera);
-}
-
-/* ---------- HELPERS ---------- */
-function setStatus(t) {
-  document.getElementById("status").innerText = t;
-}
-
-function onResize() {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-}
-</script>
-
-</body>
-</html> -->
-
-
-
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -261,10 +40,9 @@ function onResize() {
 <script type="module">
 import { ARButton } from "https://unpkg.com/three@0.128.0/examples/jsm/webxr/ARButton.js";
 
-/* 🔗 CHANGE THIS URL */
+/* 🔗 CHANGE THIS URL TO YOUR CURRENT NGROK URL */
 const NGROK_BASE = "https://d97064b994b6.ngrok-free.app";
 
-const POST_PACK = `${NGROK_BASE}/pack`;
 const GET_PACK  = `${NGROK_BASE}/latest-pack`;
 const SCALE = 0.05;
 
@@ -314,61 +92,41 @@ function init() {
   });
 }
 
-/* ---------- BACKEND FLOW ---------- */
+/* ---------- BACKEND FLOW (VIEWER ONLY) ---------- */
 async function computePack() {
-  setStatus("Connecting to AI...");
-
-  // Randomize dimensions slightly to PROVE dynamic fetching works
-  // Remove Math.floor/random if you want fixed boxes later
-  const r = () => Math.floor(Math.random() * 3) + 2; 
-  
-  const payload = {
-    bin: [10, 10, 10],
-    items: [
-      [r(), r(), r()],
-      [r(), r(), r()],
-      [r(), r(), r()]
-    ]
-  };
+  setStatus("Syncing with Dashboard...");
 
   try {
-    // 1. POST Request
-    const postRes = await fetch(POST_PACK, {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        "ngrok-skip-browser-warning": "true" // <--- CRITICAL FIX
-      },
-      body: JSON.stringify(payload)
-    });
-
-    if (!postRes.ok) throw new Error(`POST Error: ${postRes.status}`);
-
-    // 2. GET Request
+    // We REMOVED the POST request. 
+    // Now we ONLY fetch the existing data from the server.
+    
     const getRes = await fetch(GET_PACK, {
       headers: { 
-        "ngrok-skip-browser-warning": "true" // <--- CRITICAL FIX
+        "ngrok-skip-browser-warning": "true" 
       }
     });
 
-    if (!getRes.ok) throw new Error(`GET Error: ${getRes.status}`);
+    if (!getRes.ok) throw new Error(`Connection Error: ${getRes.status}`);
 
     const data = await getRes.json();
     console.log("Data received:", data);
 
-    if (!data.packed_items) throw new Error("No items in response");
+    if (!data.packed_items || data.packed_items.length === 0) {
+      setStatus("No pack found. Click 'Generate' on PC.");
+      return; 
+    }
 
     boxData = data.packed_items.map(i => ({
       pos: i.position.map(v => v * SCALE),
       size: i.dimensions.map(v => v * SCALE)
+      // Note: If your backend sends color data, you can map it here too
     }));
 
     backendReady = true;
-    setStatus("Pack Ready! Tap to Place");
+    setStatus(`Ready: ${boxData.length} Items. Tap to Place.`);
 
   } catch (err) {
     console.error(err);
-    // Display error on phone screen
     setStatus("Error: " + err.message);
   }
 }
@@ -378,7 +136,8 @@ function placeStack() {
   if (!reticle.visible) return;
   
   if (!backendReady) {
-    setStatus("Wait for AI...");
+    setStatus("Wait for sync...");
+    computePack(); // Retry fetch if they tap too early
     return;
   }
 
@@ -390,20 +149,28 @@ function placeStack() {
   boxData.forEach(b => {
     // Create box
     const geometry = new THREE.BoxGeometry(...b.size);
-    // Simple random color generation for visual distinction
-    const color = Math.random() * 0xffffff;
-    const material = new THREE.MeshStandardMaterial({ color: 0x4aa3ff, roughness: 0.5, metalness: 0.1 });
+    
+    // Using a fixed nice blue color, or random if you prefer
+    // const color = Math.random() * 0xffffff; 
+    const material = new THREE.MeshStandardMaterial({ 
+      color: 0x4aa3ff, // VisionStack Blue
+      roughness: 0.5, 
+      metalness: 0.1,
+      transparent: true,
+      opacity: 0.9
+    });
+    
     const mesh = new THREE.Mesh(geometry, material);
 
-    // Offset position so it sits ON the plane, not centered in it
-    // Assuming backend returns bottom-left-corner, ThreeJS needs center
+    // Offset position: Backend usually gives bottom-left corner
+    // ThreeJS places objects by their center.
     mesh.position.set(
       b.pos[0] + b.size[0] / 2,
       b.pos[1] + b.size[1] / 2,
       b.pos[2] + b.size[2] / 2
     );
 
-    // Add black edges for visibility
+    // Add black edges for better visibility in AR
     const edges = new THREE.LineSegments(
       new THREE.EdgesGeometry(geometry),
       new THREE.LineBasicMaterial({ color: 0x000000 })
