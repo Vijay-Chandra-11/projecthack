@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!-- <!DOCTYPE html>
 <html lang="en">
 <head>
   <title>VisionStack AR</title>
@@ -218,6 +218,259 @@ function render(_, frame) {
 }
 
 /* ---------- HELPERS ---------- */
+function setStatus(text) {
+  document.getElementById("status").innerText = text;
+}
+
+function onResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+</script>
+
+</body>
+</html> -->
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>VisionStack AR</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+    }
+
+    #start-screen {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, #1e3c72, #2a5298);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 10;
+      color: white;
+      text-align: center;
+    }
+
+    #hud {
+      display: none;
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.6);
+      padding: 12px 18px;
+      border-radius: 12px;
+      color: white;
+      font-size: 14px;
+    }
+
+    button#ar-button {
+      margin-top: 20px !important;
+      padding: 14px 32px !important;
+      border-radius: 50px !important;
+      font-weight: bold !important;
+      border: none !important;
+    }
+  </style>
+</head>
+
+<body>
+
+<div id="start-screen">
+  <h1>VisionStack</h1>
+  <p>AI-Optimized Loading Assistant</p>
+</div>
+
+<div id="hud">
+  <span id="status">Initializing…</span>
+</div>
+
+<script type="module">
+import { ARButton } from "https://unpkg.com/three@0.128.0/examples/jsm/webxr/ARButton.js";
+
+/* 🔗 CHANGE ONLY THIS URL */
+const API_URL = "https://YOUR_NGROK_OR_HOST/latest-pack";
+
+/* backend units → meters */
+const SCALE = 0.05;
+
+let scene, camera, renderer;
+let reticle, hitTestSource = null, hitTestSourceRequested = false;
+let stackGroup = null;
+let boxData = [];
+let backendReady = false;
+
+/* ---------- INIT ---------- */
+init();
+renderer.setAnimationLoop(render);
+
+async function init() {
+  scene = new THREE.Scene();
+
+  camera = new THREE.PerspectiveCamera(
+    70,
+    window.innerWidth / window.innerHeight,
+    0.01,
+    20
+  );
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
+  const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+  dir.position.set(3, 10, 10);
+  scene.add(dir);
+
+  renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.xr.enabled = true;
+  document.body.appendChild(renderer.domElement);
+
+  const arButton = ARButton.createButton(renderer, {
+    requiredFeatures: ["hit-test"]
+  });
+  arButton.id = "ar-button";
+  document.getElementById("start-screen").appendChild(arButton);
+
+  reticle = new THREE.Mesh(
+    new THREE.RingGeometry(0.1, 0.11, 32).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({ color: 0xffffff })
+  );
+  reticle.matrixAutoUpdate = false;
+  reticle.visible = false;
+  scene.add(reticle);
+
+  const controller = renderer.xr.getController(0);
+  controller.addEventListener("select", placeStack);
+  scene.add(controller);
+
+  fetchBackend();
+
+  window.addEventListener("resize", onResize);
+}
+
+/* ---------- BACKEND ---------- */
+async function fetchBackend() {
+  try {
+    const res = await fetch(API_URL);
+    const data = await res.json();
+
+    if (!data.packed_items) return;
+
+    boxData = data.packed_items.map(item => ({
+      pos: item.position.map(v => v * SCALE),
+      size: item.dimensions.map(v => v * SCALE)
+    }));
+
+    backendReady = true;
+    setStatus("Tap to place");
+
+  } catch {
+    console.warn("Backend unavailable — using fallback");
+  }
+}
+
+/* ---------- PLACE STACK ---------- */
+function placeStack() {
+  if (!reticle.visible) return;
+
+  if (stackGroup) scene.remove(stackGroup);
+
+  stackGroup = new THREE.Group();
+  stackGroup.position.setFromMatrixPosition(reticle.matrix);
+  scene.add(stackGroup);
+
+  if (backendReady && boxData.length) {
+    boxData.forEach(addBoxFromBackend);
+  } else {
+    addFallbackBox();
+  }
+
+  setStatus("Placed");
+}
+
+/* ---------- BOX FROM BACKEND (CORRECT) ---------- */
+function addBoxFromBackend(b) {
+  const [x, y, z] = b.pos;
+  const [w, h, d] = b.size;
+
+  const geometry = new THREE.BoxGeometry(w, h, d);
+  const material = new THREE.MeshStandardMaterial({
+    color: 0x4aa3ff,
+    roughness: 0.4,
+    metalness: 0.1
+  });
+
+  const mesh = new THREE.Mesh(geometry, material);
+
+  /* ✅ CORRECT conversion: corner → center */
+  mesh.position.set(
+    x + w / 2,
+    y + h / 2,
+    z + d / 2
+  );
+
+  stackGroup.add(mesh);
+}
+
+/* ---------- FALLBACK ---------- */
+function addFallbackBox() {
+  const g = new THREE.BoxGeometry(0.25, 0.25, 0.25);
+  const m = new THREE.MeshStandardMaterial({ color: 0xff4444 });
+  const mesh = new THREE.Mesh(g, m);
+  mesh.position.y = 0.125;
+  stackGroup.add(mesh);
+}
+
+/* ---------- RENDER ---------- */
+function render(_, frame) {
+  if (frame) {
+    const refSpace = renderer.xr.getReferenceSpace();
+    const session = renderer.xr.getSession();
+
+    if (!hitTestSourceRequested) {
+      session.requestReferenceSpace("viewer").then(space => {
+        session.requestHitTestSource({ space }).then(src => {
+          hitTestSource = src;
+        });
+      });
+
+      document.getElementById("start-screen").style.display = "none";
+      document.getElementById("hud").style.display = "block";
+      setStatus("Scan floor");
+
+      hitTestSourceRequested = true;
+    }
+
+    if (hitTestSource) {
+      const hits = frame.getHitTestResults(hitTestSource);
+      if (hits.length) {
+        reticle.visible = true;
+        reticle.matrix.fromArray(
+          hits[0].getPose(refSpace).transform.matrix
+        );
+      } else {
+        reticle.visible = false;
+      }
+    }
+  }
+
+  renderer.render(scene, camera);
+}
+
+/* ---------- UI ---------- */
 function setStatus(text) {
   document.getElementById("status").innerText = text;
 }
