@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!-- <!DOCTYPE html>
 <html lang="en">
 <head>
   <title>VisionStack AR</title>
@@ -210,6 +210,250 @@ function onResize() {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+}
+</script>
+
+</body>
+</html> -->
+
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>VisionStack AR</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <style>
+    body { margin: 0; overflow: hidden; font-family: sans-serif; }
+    #start {
+      position: absolute; inset: 0;
+      background: linear-gradient(135deg, #1e3c72, #2a5298);
+      display: flex; flex-direction: column;
+      justify-content: center; align-items: center;
+      color: white; z-index: 10;
+    }
+    #hud {
+      display: none; position: absolute;
+      bottom: 20px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,0.8); padding: 12px 18px;
+      border-radius: 12px; color: white; font-size: 14px;
+      text-align: center; white-space: nowrap;
+    }
+    button#ar-button {
+      margin-top: 20px !important; padding: 14px 32px !important;
+      border-radius: 50px !important; font-weight: bold !important; border: none !important;
+    }
+  </style>
+</head>
+
+<body>
+
+<div id="start">
+  <h1>VisionStack</h1>
+  <p>AI-Optimized Loading Assistant</p>
+</div>
+
+<div id="hud"><span id="status">Initializing…</span></div>
+
+<script type="module">
+import { ARButton } from "https://unpkg.com/three@0.128.0/examples/jsm/webxr/ARButton.js";
+
+/* 🔗 CHANGE THIS URL */
+const NGROK_BASE = "https://d97064b994b6.ngrok-free.app";
+
+const POST_PACK = `${NGROK_BASE}/pack`;
+const GET_PACK  = `${NGROK_BASE}/latest-pack`;
+const SCALE = 0.05;
+
+let scene, camera, renderer;
+let reticle, hitTestSource = null, hitTestRequested = false;
+let stackGroup = null;
+let boxData = [];
+let backendReady = false;
+
+init();
+renderer.setAnimationLoop(render);
+
+function init() {
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
+  const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+  dir.position.set(3, 10, 10);
+  scene.add(dir);
+
+  renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.xr.enabled = true;
+  document.body.appendChild(renderer.domElement);
+
+  const arBtn = ARButton.createButton(renderer, { requiredFeatures: ["hit-test"] });
+  arBtn.id = "ar-button";
+  document.getElementById("start").appendChild(arBtn);
+
+  reticle = new THREE.Mesh(
+    new THREE.RingGeometry(0.1, 0.11, 32).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({ color: 0xffffff })
+  );
+  reticle.matrixAutoUpdate = false;
+  reticle.visible = false;
+  scene.add(reticle);
+
+  const controller = renderer.xr.getController(0);
+  controller.addEventListener("select", placeStack);
+  scene.add(controller);
+
+  window.addEventListener("resize", () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+}
+
+/* ---------- BACKEND FLOW ---------- */
+async function computePack() {
+  setStatus("Connecting to AI...");
+
+  // Randomize dimensions slightly to PROVE dynamic fetching works
+  // Remove Math.floor/random if you want fixed boxes later
+  const r = () => Math.floor(Math.random() * 3) + 2; 
+  
+  const payload = {
+    bin: [10, 10, 10],
+    items: [
+      [r(), r(), r()],
+      [r(), r(), r()],
+      [r(), r(), r()]
+    ]
+  };
+
+  try {
+    // 1. POST Request
+    const postRes = await fetch(POST_PACK, {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        "ngrok-skip-browser-warning": "true" // <--- CRITICAL FIX
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!postRes.ok) throw new Error(`POST Error: ${postRes.status}`);
+
+    // 2. GET Request
+    const getRes = await fetch(GET_PACK, {
+      headers: { 
+        "ngrok-skip-browser-warning": "true" // <--- CRITICAL FIX
+      }
+    });
+
+    if (!getRes.ok) throw new Error(`GET Error: ${getRes.status}`);
+
+    const data = await getRes.json();
+    console.log("Data received:", data);
+
+    if (!data.packed_items) throw new Error("No items in response");
+
+    boxData = data.packed_items.map(i => ({
+      pos: i.position.map(v => v * SCALE),
+      size: i.dimensions.map(v => v * SCALE)
+    }));
+
+    backendReady = true;
+    setStatus("Pack Ready! Tap to Place");
+
+  } catch (err) {
+    console.error(err);
+    // Display error on phone screen
+    setStatus("Error: " + err.message);
+  }
+}
+
+/* ---------- PLACE STACK ---------- */
+function placeStack() {
+  if (!reticle.visible) return;
+  
+  if (!backendReady) {
+    setStatus("Wait for AI...");
+    return;
+  }
+
+  if (stackGroup) scene.remove(stackGroup);
+  stackGroup = new THREE.Group();
+  stackGroup.position.setFromMatrixPosition(reticle.matrix);
+  scene.add(stackGroup);
+
+  boxData.forEach(b => {
+    // Create box
+    const geometry = new THREE.BoxGeometry(...b.size);
+    // Simple random color generation for visual distinction
+    const color = Math.random() * 0xffffff;
+    const material = new THREE.MeshStandardMaterial({ color: 0x4aa3ff, roughness: 0.5, metalness: 0.1 });
+    const mesh = new THREE.Mesh(geometry, material);
+
+    // Offset position so it sits ON the plane, not centered in it
+    // Assuming backend returns bottom-left-corner, ThreeJS needs center
+    mesh.position.set(
+      b.pos[0] + b.size[0] / 2,
+      b.pos[1] + b.size[1] / 2,
+      b.pos[2] + b.size[2] / 2
+    );
+
+    // Add black edges for visibility
+    const edges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(geometry),
+      new THREE.LineBasicMaterial({ color: 0x000000 })
+    );
+    mesh.add(edges);
+
+    stackGroup.add(mesh);
+  });
+
+  setStatus("Stack Placed");
+}
+
+/* ---------- RENDER ---------- */
+function render(_, frame) {
+  if (frame) {
+    const session = renderer.xr.getSession();
+
+    if (!hitTestRequested) {
+      session.requestReferenceSpace("viewer").then(space => {
+        session.requestHitTestSource({ space }).then(src => hitTestSource = src);
+      });
+
+      // UI Switch
+      document.getElementById("start").style.display = "none";
+      document.getElementById("hud").style.display = "block";
+
+      // Trigger Backend ONCE when AR starts
+      computePack(); 
+      
+      hitTestRequested = true;
+    }
+
+    if (hitTestSource) {
+      const refSpace = renderer.xr.getReferenceSpace();
+      const hits = frame.getHitTestResults(hitTestSource);
+      
+      if (hits.length) {
+        reticle.visible = true;
+        const hitPose = hits[0].getPose(refSpace);
+        reticle.matrix.fromArray(hitPose.transform.matrix);
+      } else {
+        reticle.visible = false;
+      }
+    }
+  }
+  renderer.render(scene, camera);
+}
+
+function setStatus(text) {
+  document.getElementById("status").innerText = text;
 }
 </script>
 
