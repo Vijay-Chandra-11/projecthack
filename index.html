@@ -25,6 +25,7 @@
       margin-top: 20px !important; padding: 14px 32px !important;
       border-radius: 50px !important; font-weight: bold !important; border: none !important;
     }
+    .error-msg { color: #ff6b6b; margin-top: 10px; font-size: 12px; }
   </style>
 </head>
 
@@ -33,6 +34,7 @@
 <div id="start">
   <h1>VisionStack</h1>
   <p>AI-Optimized Loading Assistant</p>
+  <p id="connection-status" class="error-msg"></p>
 </div>
 
 <div id="hud"><span id="status">Initializing…</span></div>
@@ -40,11 +42,11 @@
 <script type="module">
 import { ARButton } from "https://unpkg.com/three@0.128.0/examples/jsm/webxr/ARButton.js";
 
-/* 🔗 CHANGE THIS URL TO YOUR CURRENT NGROK URL */
-const NGROK_BASE = "https://d97064b994b6.ngrok-free.app";
+/* 🔗 CHANGE THIS TO YOUR EXACT NGROK URL */
+const NGROK_BASE = "https://d97064b994b6.ngrok-free.app"; 
 
 const GET_PACK  = `${NGROK_BASE}/latest-pack`;
-const SCALE = 0.05;
+const SCALE = 0.05; // 1 unit = 5cm in AR
 
 let scene, camera, renderer;
 let reticle, hitTestSource = null, hitTestRequested = false;
@@ -59,9 +61,10 @@ function init() {
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
 
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
-  const dir = new THREE.DirectionalLight(0xffffff, 0.8);
-  dir.position.set(3, 10, 10);
+  // Lighting to match the "Dark Mode" aesthetic of your dashboard
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 0.8));
+  const dir = new THREE.DirectionalLight(0xffffff, 1);
+  dir.position.set(5, 10, 7);
   scene.add(dir);
 
   renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
@@ -69,10 +72,12 @@ function init() {
   renderer.xr.enabled = true;
   document.body.appendChild(renderer.domElement);
 
+  // Add AR Button
   const arBtn = ARButton.createButton(renderer, { requiredFeatures: ["hit-test"] });
   arBtn.id = "ar-button";
   document.getElementById("start").appendChild(arBtn);
 
+  // Reticle (The white ring)
   reticle = new THREE.Mesh(
     new THREE.RingGeometry(0.1, 0.11, 32).rotateX(-Math.PI / 2),
     new THREE.MeshBasicMaterial({ color: 0xffffff })
@@ -90,36 +95,52 @@ function init() {
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
+  
+  // Pre-check connection for better UX
+  checkConnection();
 }
 
-/* ---------- BACKEND FLOW (VIEWER ONLY) ---------- */
+async function checkConnection() {
+    try {
+        const res = await fetch(GET_PACK, { 
+            headers: { "ngrok-skip-browser-warning": "true" } 
+        });
+        if(res.ok) {
+            document.getElementById("connection-status").innerText = "• Connected to Backend";
+            document.getElementById("connection-status").style.color = "#4ade80";
+        }
+    } catch(e) {
+        document.getElementById("connection-status").innerText = "• Cannot reach Backend";
+    }
+}
+
+/* ---------- SYNC WITH BACKEND ---------- */
 async function computePack() {
   setStatus("Syncing with Dashboard...");
 
   try {
-    // We REMOVED the POST request. 
-    // Now we ONLY fetch the existing data from the server.
-    
+    // GET request to retrieve the data currently in LATEST_PACK
     const getRes = await fetch(GET_PACK, {
       headers: { 
         "ngrok-skip-browser-warning": "true" 
       }
     });
 
-    if (!getRes.ok) throw new Error(`Connection Error: ${getRes.status}`);
+    if (!getRes.ok) throw new Error(`Server Error: ${getRes.status}`);
 
     const data = await getRes.json();
     console.log("Data received:", data);
 
-    if (!data.packed_items || data.packed_items.length === 0) {
-      setStatus("No pack found. Click 'Generate' on PC.");
+    // Handle case where user hasn't generated anything on PC yet
+    if (data.error || !data.packed_items || data.packed_items.length === 0) {
+      setStatus("No Pack Found. Generate on PC first.");
       return; 
     }
 
+    // Process Data
     boxData = data.packed_items.map(i => ({
       pos: i.position.map(v => v * SCALE),
       size: i.dimensions.map(v => v * SCALE)
-      // Note: If your backend sends color data, you can map it here too
     }));
 
     backendReady = true;
@@ -131,13 +152,13 @@ async function computePack() {
   }
 }
 
-/* ---------- PLACE STACK ---------- */
+/* ---------- RENDER BOXES ---------- */
 function placeStack() {
   if (!reticle.visible) return;
   
   if (!backendReady) {
-    setStatus("Wait for sync...");
-    computePack(); // Retry fetch if they tap too early
+    setStatus("Retrying Sync...");
+    computePack(); 
     return;
   }
 
@@ -146,15 +167,17 @@ function placeStack() {
   stackGroup.position.setFromMatrixPosition(reticle.matrix);
   scene.add(stackGroup);
 
-  boxData.forEach(b => {
-    // Create box
+  // Generate boxes matching the backend data
+  boxData.forEach((b, index) => {
     const geometry = new THREE.BoxGeometry(...b.size);
     
-    // Using a fixed nice blue color, or random if you prefer
-    // const color = Math.random() * 0xffffff; 
+    // Cycle through distinct colors to mimic the dashboard
+    const colors = [0x00FFFF, 0xFF00FF, 0xFFFF00, 0xFF0000, 0x00FF00, 0x0000FF];
+    const color = colors[index % colors.length];
+
     const material = new THREE.MeshStandardMaterial({ 
-      color: 0x4aa3ff, // VisionStack Blue
-      roughness: 0.5, 
+      color: color,
+      roughness: 0.3,
       metalness: 0.1,
       transparent: true,
       opacity: 0.9
@@ -162,15 +185,15 @@ function placeStack() {
     
     const mesh = new THREE.Mesh(geometry, material);
 
-    // Offset position: Backend usually gives bottom-left corner
-    // ThreeJS places objects by their center.
+    // THREE.js positions from center, Backend positions from corner
+    // We adjust by +size/2 to align them perfectly
     mesh.position.set(
       b.pos[0] + b.size[0] / 2,
       b.pos[1] + b.size[1] / 2,
       b.pos[2] + b.size[2] / 2
     );
 
-    // Add black edges for better visibility in AR
+    // Black edges for visibility
     const edges = new THREE.LineSegments(
       new THREE.EdgesGeometry(geometry),
       new THREE.LineBasicMaterial({ color: 0x000000 })
@@ -183,7 +206,7 @@ function placeStack() {
   setStatus("Stack Placed");
 }
 
-/* ---------- RENDER ---------- */
+/* ---------- AR LOOP ---------- */
 function render(_, frame) {
   if (frame) {
     const session = renderer.xr.getSession();
@@ -193,11 +216,10 @@ function render(_, frame) {
         session.requestHitTestSource({ space }).then(src => hitTestSource = src);
       });
 
-      // UI Switch
       document.getElementById("start").style.display = "none";
       document.getElementById("hud").style.display = "block";
 
-      // Trigger Backend ONCE when AR starts
+      // FETCH DATA ONCE UPON START
       computePack(); 
       
       hitTestRequested = true;
