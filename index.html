@@ -8,7 +8,11 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
   <style>
-    body { margin: 0; overflow: hidden; font-family: sans-serif; }
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: sans-serif;
+    }
 
     #start-screen {
       position: absolute;
@@ -58,13 +62,14 @@
 <script type="module">
 import { ARButton } from "https://unpkg.com/three@0.128.0/examples/jsm/webxr/ARButton.js";
 
-/* OPTIONAL BACKEND (can fail safely) */
-const API_URL = "https://d97064b994b6.ngrok-free.app/latest-pack";
+/* 🔗 CHANGE ONLY THIS WHEN NGROK URL CHANGES */
+const API_URL = " https://d97064b994b6.ngrok-free.app/pack";
+
+/* Backend units → meters */
 const SCALE = 0.05;
 
 let scene, camera, renderer;
 let reticle, hitTestSource = null, hitTestSourceRequested = false;
-let placed = false;
 let stackGroup = null;
 let boxData = [];
 
@@ -74,11 +79,17 @@ renderer.setAnimationLoop(render);
 
 function init() {
   scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+
+  camera = new THREE.PerspectiveCamera(
+    70,
+    window.innerWidth / window.innerHeight,
+    0.01,
+    20
+  );
 
   scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
   const dir = new THREE.DirectionalLight(0xffffff, 0.8);
-  dir.position.set(3,10,10);
+  dir.position.set(3, 10, 10);
   scene.add(dir);
 
   renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
@@ -86,7 +97,9 @@ function init() {
   renderer.xr.enabled = true;
   document.body.appendChild(renderer.domElement);
 
-  const arButton = ARButton.createButton(renderer, { requiredFeatures: ["hit-test"] });
+  const arButton = ARButton.createButton(renderer, {
+    requiredFeatures: ["hit-test"]
+  });
   arButton.id = "ar-button";
   document.getElementById("start-screen").appendChild(arButton);
 
@@ -99,30 +112,40 @@ function init() {
   scene.add(reticle);
 
   const controller = renderer.xr.getController(0);
-  controller.addEventListener("select", placeObject);
+  controller.addEventListener("select", placeStack);
   scene.add(controller);
 
-  window.addEventListener("resize", () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-  });
+  window.addEventListener("resize", onResize);
 }
 
-/* ---------- BACKEND (OPTIONAL) ---------- */
-fetch(API_URL)
-  .then(r => r.json())
-  .then(d => {
-    if (!d.packed_items) return;
-    boxData = d.packed_items.map(i => ({
-      pos: i.position.map(v => v * SCALE),
-      size: i.dimensions.map(v => v * SCALE)
-    }));
+/* ---------- BACKEND FETCH (POST — TTL WILL INCREASE) ---------- */
+fetch(API_URL, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    bin: [10, 10, 10],
+    items: [
+      [3, 4, 2],
+      [2, 2, 2],
+      [4, 3, 3]
+    ]
   })
-  .catch(() => console.warn("Backend unavailable"));
+})
+.then(res => res.json())
+.then(data => {
+  if (!data.packed_items) return;
 
-/* ---------- PLACE OBJECT ---------- */
-function placeObject() {
+  boxData = data.packed_items.map(item => ({
+    pos: item.position.map(v => v * SCALE),
+    size: item.dimensions.map(v => v * SCALE)
+  }));
+
+  console.log("Loaded from backend:", boxData);
+})
+.catch(() => console.warn("Backend unreachable — using fallback cube"));
+
+/* ---------- PLACE STACK ---------- */
+function placeStack() {
   if (!reticle.visible) return;
 
   if (stackGroup) scene.remove(stackGroup);
@@ -136,7 +159,6 @@ function placeObject() {
     addFallbackBox();
   }
 
-  placed = true;
   setStatus("Placed");
 }
 
@@ -145,23 +167,25 @@ function addBox(b) {
   const g = new THREE.BoxGeometry(...b.size);
   const m = new THREE.MeshStandardMaterial({ color: 0x4aa3ff });
   const mesh = new THREE.Mesh(g, m);
+
   mesh.position.set(
-    b.pos[0] + b.size[0]/2,
-    b.pos[1] + b.size[1]/2,
-    b.pos[2] + b.size[2]/2
+    b.pos[0] + b.size[0] / 2,
+    b.pos[1] + b.size[1] / 2,
+    b.pos[2] + b.size[2] / 2
   );
+
   stackGroup.add(mesh);
 }
 
 function addFallbackBox() {
-  const g = new THREE.BoxGeometry(0.2,0.2,0.2);
+  const g = new THREE.BoxGeometry(0.2, 0.2, 0.2);
   const m = new THREE.MeshStandardMaterial({ color: 0xff4444 });
-  const mesh = new THREE.Mesh(g,m);
+  const mesh = new THREE.Mesh(g, m);
   mesh.position.y = 0.1;
   stackGroup.add(mesh);
 }
 
-/* ---------- RENDER ---------- */
+/* ---------- RENDER LOOP ---------- */
 function render(_, frame) {
   if (frame) {
     const refSpace = renderer.xr.getReferenceSpace();
@@ -171,9 +195,11 @@ function render(_, frame) {
       session.requestReferenceSpace("viewer").then(space => {
         session.requestHitTestSource({ space }).then(src => hitTestSource = src);
       });
+
       document.getElementById("start-screen").style.display = "none";
       document.getElementById("hud").style.display = "block";
       setStatus("Scan floor");
+
       hitTestSourceRequested = true;
     }
 
@@ -187,11 +213,19 @@ function render(_, frame) {
       }
     }
   }
+
   renderer.render(scene, camera);
 }
 
-function setStatus(t) {
-  document.getElementById("status").innerText = t;
+/* ---------- HELPERS ---------- */
+function setStatus(text) {
+  document.getElementById("status").innerText = text;
+}
+
+function onResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
 }
 </script>
 
